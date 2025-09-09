@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lista de Presentes — Chá dos Noivos</title>
+  <script src="https://www.gstatic.com/firebasejs/9.24.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.24.0/firebase-database-compat.js"></script>
+  <style>
+    :root{--accent:#d6336c;--muted:#666;--bg:#f7f7f8}
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:#222}
+    header{background:white;padding:18px 20px;border-bottom:1px solid #e6e6e9;display:flex;flex-direction:column;align-items:center;gap:12px}
+    .brand{display:flex;flex-direction:column;align-items:center;gap:12px}
+    .logo-upload{max-width:180px;max-height:180px;border-radius:12px;object-fit:cover;}
+    h1{font-size:20px;margin:0;text-align:center}
+    p.lead{margin:2px 0 0;color:var(--muted);font-size:13px;text-align:center}
+    main{padding:20px;max-width:1100px;margin:22px auto}
+
+    .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;justify-content:center}
+    .card{background:white;border-radius:12px;padding:14px;box-shadow:0 6px 18px rgba(30,30,30,0.04)}
+
+    .add-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .add-form input[type=text], .add-form input[type=number], .add-form input[type=url], .add-form input[type=file], textarea{padding:10px;border:1px solid #e6e6e9;border-radius:8px}
+    .btn{background:var(--accent);color:white;padding:10px 12px;border-radius:8px;border:0;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(0,0,0,0.06)}
+    .btn.warn{background:#ff6b6b}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+    .item{padding:12px;border-radius:10px;border:1px solid #eee;display:flex;flex-direction:column;gap:8px}
+    .item h3{margin:0;font-size:15px}
+    .meta{font-size:13px;color:var(--muted)}
+    .actions{display:flex;gap:6px;flex-wrap:wrap}
+    .pill{display:inline-block;padding:6px 8px;border-radius:999px;border:1px solid #eee;font-size:13px}
+    .purchased{background:linear-gradient(90deg,#e6ffe9,#e6fff3);border-color:#cdeed2}
+    .item img{max-width:100%;border-radius:8px;}
+
+    .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+    .search{padding:10px;border-radius:8px;border:1px solid #eee}
+
+    .guest-welcome{display:flex;flex-direction:column;align-items:center;gap:10px;padding:18px}
+
+    footer{max-width:1100px;margin:18px auto;color:var(--muted);font-size:13px;text-align:center}
+
+    @media(max-width:560px){.add-form{flex-direction:column;align-items:stretch}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <input id="logoUpload" type="file" accept="image/*" style="display:none" />
+    <img id="logoPreview" class="logo-upload" style="display:none" alt="Logo do casal" />
+    <h1>Lista de Presentes — Chá dos Noivos</h1>
+    <p class="lead">Organize os presentes, evite duplicidade e compartilhe com os convidados.</p>
+  </div>
+  <div class="right" id="adminControls">
+    <input id="search" class="search" placeholder="Buscar presente..." />
+    <button id="shareBtn" class="btn">Gerar link para convidados</button>
+  </div>
+</header>
+<main>
+  <!-- Editor panel -->
+  <section class="card" id="editorPanel">
+    <strong>Adicionar novo presente</strong>
+    <form id="addForm" class="add-form" onsubmit="return false" style="margin-top:12px">
+      <input id="title" type="text" placeholder="Nome do presente" required />
+      <input id="qty" type="number" min="1" placeholder="Qtd" style="width:80px" value="1" />
+      <input id="link" type="url" placeholder="Link da loja (opcional)" />
+      <input id="image" type="file" accept="image/*" />
+      <button id="addBtn" class="btn">Adicionar</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <strong>Presentes</strong>
+    <div id="grid" class="grid" style="margin-top:12px"></div>
+  </section>
+
+  <!-- Guest panel -->
+  <section class="card" id="guestPanel" style="display:none;margin-top:18px">
+    <div class="guest-welcome" id="guestWelcomeArea">
+      <div id="guestLogoContainer"></div>
+      <h2>Seja bem-vindo(a)!</h2>
+      <p style="max-width:700px;text-align:center">Obrigado por visitar nossa lista de presentes. Escolha um presente que deseja oferecer e confirme seu nome. O presente ficará reservado para você.</p>
+    </div>
+    <div id="guestGrid" class="grid" style="margin-top:8px"></div>
+  </section>
+</main>
+<footer>
+  <div>O painel dos noivos mostra quem reservou cada presente. Os convidados veem apenas se está disponível ou reservado.</div>
+</footer>
+
+<script>
+// ---------- CONFIGURAÇÃO DO FIREBASE ----------
+const firebaseConfig = {
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_PROJECT_ID.firebaseapp.com",
+  databaseURL: "https://SEU_PROJECT_ID.firebaseio.com",
+  projectId: "SEU_PROJECT_ID",
+  storageBucket: "SEU_PROJECT_ID.appspot.com",
+  messagingSenderId: "SEU_SENDER_ID",
+  appId: "SEU_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ---------- MODO ----------
+const urlParams = new URLSearchParams(location.search);
+const MODE = urlParams.get('mode') === 'guest' ? 'guest' : 'admin';
+
+// ---------- ELEMENTOS ----------
+const grid = document.getElementById('grid');
+const guestGrid = document.getElementById('guestGrid');
+const logoUpload = document.getElementById('logoUpload');
+const logoPreview = document.getElementById('logoPreview');
+const addBtn = document.getElementById('addBtn');
+const titleInput = document.getElementById('title');
+const qtyInput = document.getElementById('qty');
+const linkInput = document.getElementById('link');
+const imageInput = document.getElementById('image');
+const editorPanel = document.getElementById('editorPanel');
+const guestPanel = document.getElementById('guestPanel');
+const searchInput = document.getElementById('search');
+
+// ---------- LOGO ----------
+logoUpload.addEventListener('change', e=>{
+  if(e.target.files && e.target.files[0]){
+    const reader = new FileReader();
+    reader.onload = ev => {
+      logoPreview.src = ev.target.result;
+      logoPreview.style.display='block';
+      db.ref('logo').set(ev.target.result);
+    };
+    reader.readAsDataURL(e.target.files[0]);
+  }
+});
+
+// ---------- FUNÇÕES ----------
+function renderAdmin(items){
+  grid.innerHTML='';
+  items.forEach(it=>{
+    const el = document.createElement('div'); el.className='item';
+    if(it.image){const img=document.createElement('img'); img.src=it.image; el.appendChild(img);}
+    const h=document.createElement('h3'); h.textContent=it.title; el.appendChild(h);
+    const m=document.createElement('div'); m.className='meta'; m.textContent=`Qtd: ${it.qty}`; el.appendChild(m);
+    const actions=document.createElement('div'); actions.className='actions';
+    const reserveBtn=document.createElement('button'); reserveBtn.className='pill';
+    reserveBtn.textContent = it.reserved ? 'Reservado' : 'Reservar';
+    reserveBtn.onclick = ()=>{
+      if(!it.reserved){
+        const name = prompt('Nome do convidado:'); if(!name) return;
+        db.ref('items/'+it.id).update({reserved:true,buyer:name});
+      } else {
+        if(confirm('Remover reserva?')){
+          db.ref('items/'+it.id).update({reserved:false,buyer:''});
+        }
+      }
+    };
+    if(it.reserved) reserveBtn.classList.add('purchased');
+    actions.appendChild(reserveBtn);
+    const who=document.createElement('div'); who.className='meta'; who.textContent=`Reservado por: ${it.buyer||'—'}`;
+    el.appendChild(actions); el.appendChild(who);
+    grid.appendChild(el);
+  });
+}
+
+function renderGuest(items){
+  guestGrid.innerHTML='';
+  items.forEach(it=>{
+    const el = document.createElement('div'); el.className='item';
+    if(it.image){const img=document.createElement('img'); img.src=it.image; el.appendChild(img);}
+    const h=document.createElement('h3'); h.textContent=it.title; el.appendChild(h);
+    const m=document.createElement('div'); m.className='meta'; m.textContent=`Qtd: ${it.qty}`; el.appendChild(m);
+    const actions=document.createElement('div'); actions.className='actions';
+    if(it.reserved){ const span=document.createElement('span'); span.className='pill purchased'; span.textContent='Reservado'; actions.appendChild(span); }
+    else{ const btn=document.createElement('button'); btn.className='btn'; btn.textContent='Escolher presente'; btn.onclick=()=>{
+      const name=prompt('Digite seu nome:'); if(!name) return;
+      db.ref('items/'+it.id).update({reserved:true,buyer:name});
+    }; actions.appendChild(btn); }
+    el.appendChild(actions); guestGrid.appendChild(el);
+  });
+}
+
+// ---------- CARREGAR LOGO ----------
+db.ref('logo').on('value', snap=>{
+  if(snap.exists()){
+    const val = snap.val();
+    logoPreview.src=val; logoPreview.style.display='block';
+    if(MODE==='guest'){
+      const guestLogoContainer = document.getElementById('guestLogoContainer');
+      guestLogoContainer.innerHTML='';
+      const img = document.createElement('img'); img.src=val; img.className='logo-upload';
+      guestLogoContainer.appendChild(img);
+    }
+  }
+});
+
+// ---------- CARREGAR ITEMS ----------
+db.ref('items').on('value', snap=>{
+  const obj = snap.val() || {};
+  const arr = Object.keys(obj).map(k=>obj[k]);
+  if(MODE==='admin') renderAdmin(arr); else renderGuest(arr);
+});
+
+// ---------- ADICIONAR ITEM ----------
+addBtn.onclick=()=>{
+  const t=titleInput.value.trim();
+  const q=parseInt(qtyInput.value)||1;
+  const l=linkInput.value.trim();
+  if(!t) return alert('Preencha o nome');
+  const id = Date.now().toString();
+  if(imageInput.files && imageInput.files[0]){
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      db.ref('items/'+id).set({id,title:t,qty:q,link:l,image:ev.target.result,reserved:false,buyer:''});
+    };
+    reader.readAsDataURL(imageInput.files[0]);
+  } else db.ref('items/'+id).set({id,title:t,qty:q,link:l,image:'',reserved:false,buyer:''});
+  titleInput.value=''; qtyInput.value=1; linkInput.value=''; imageInput.value='';
+}
+
+// ---------- MODO ----------
+if(MODE==='guest') editorPanel.style.display='none'; else guestPanel.style.display='none';
+
+// ---------- SEARCH ----------
+searchInput.addEventListener('input', ()=>{
+  const term = searchInput.value.toLowerCase();
+  db.ref('items').once('value').then(snap=>{
+    const arr = Object.values(snap.val()||{});
+    const filtered = arr.filter(i=>i.title.toLowerCase().includes(term));
+    if(MODE==='admin') renderAdmin(filtered); else renderGuest(filtered);
+  });
+});
+
+// ---------- GERAR LINK PARA CONVIDADOS ----------
+document.getElementById('shareBtn').onclick=()=>{
+  const guestUrl = location.origin+location.pathname+'?mode=guest';
+  navigator.clipboard.writeText(guestUrl).then(()=>alert('Link para convidados copiado!')).catch(()=>prompt('Copie o link:',guestUrl));
+}
+</script>
+</body>
+</html>
